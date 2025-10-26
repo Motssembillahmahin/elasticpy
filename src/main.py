@@ -9,6 +9,8 @@ from starlette.middleware.cors import CORSMiddleware
 from src.database import init_redis_pool, close_redis_pool
 
 from src.product.routes import router as product_router
+from src.search.routes import router as search_router
+
 
 if TYPE_CHECKING:
     pass
@@ -37,6 +39,12 @@ app.include_router(
     product_router,
     prefix="/product",
     tags=["Product"],
+)
+
+app.include_router(
+    search_router,
+    prefix="/search",
+    tags=["Search"],
 )
 
 app.add_middleware(
