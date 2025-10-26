@@ -54,6 +54,7 @@ class SearchService:
             logger.error(f"Search error in {index_name}: {e}")
             raise
 
+    @staticmethod
     def _build_query(self, request: SearchRequest) -> Dict[str, Any]:
         """
         Build Elasticsearch query
@@ -101,6 +102,7 @@ class SearchService:
 
         return query
 
+    @staticmethod
     def _build_highlight(self) -> Dict[str, Any]:
         """Configure result highlighting"""
         return {
@@ -109,6 +111,7 @@ class SearchService:
             "post_tags": ["</mark>"],
         }
 
+    @staticmethod
     def _parse_response(
         self, response: Dict[str, Any], request: SearchRequest
     ) -> SearchResponse:
