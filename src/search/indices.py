@@ -33,20 +33,18 @@ class BaseIndex:
 
 
 class ProductIndex(BaseIndex):
-    """Product search index"""
-
     INDEX_NAME = "products"
 
     @classmethod
     def get_mappings(cls) -> Dict[str, Any]:
         return {
             "properties": {
-                "id": {"type": "keyword"},  # Exact match
+                "id": {"type": "keyword"},
                 "name": {
                     "type": "text",
                     "analyzer": "standard",
                     "fields": {
-                        "keyword": {"type": "keyword"},  # For sorting
+                        "keyword": {"type": "keyword"},
                         "autocomplete": {
                             "type": "text",
                             "analyzer": "autocomplete_analyzer",
@@ -54,17 +52,86 @@ class ProductIndex(BaseIndex):
                         },
                     },
                 },
+                "slug": {"type": "text", "analyzer": "standard"},
                 "description": {"type": "text", "analyzer": "standard"},
                 "price": {"type": "float"},
-                "category": {"type": "keyword"},  # For filtering/aggregations
-                "tags": {"type": "keyword"},  # Array support
+                "category": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "keyword"},
+                        "name": {
+                            "type": "text",
+                            "fields": {"keyword": {"type": "keyword"}},
+                        },
+                        "slug": {"type": "keyword"},
+                        "parent_id": {"type": "keyword"},
+                    },
+                },
+                "category_name": {"type": "keyword"},
+                "category_path": {"type": "keyword"},
+                "tags": {
+                    "type": "nested",
+                    "properties": {
+                        "id": {"type": "keyword"},
+                        "name": {
+                            "type": "text",
+                            "fields": {"keyword": {"type": "keyword"}},
+                        },
+                    },
+                },
+                "tag_names": {"type": "keyword"},
+                # Product Variants (nested)
+                "variants": {
+                    "type": "nested",  # IMPORTANT: Use nested for variants
+                    "properties": {
+                        "id": {"type": "keyword"},
+                        "sku": {"type": "keyword"},
+                        "color": {"type": "keyword"},
+                        "size": {"type": "keyword"},
+                        "price": {"type": "float"},
+                        "stock": {"type": "integer"},
+                        "is_available": {"type": "boolean"},
+                        "attributes": {  # Custom attributes
+                            "type": "object",
+                            "enabled": True,
+                        },
+                    },
+                },
+                # Images (nested)
+                "images": {
+                    "type": "nested",
+                    "properties": {
+                        "id": {"type": "keyword"},
+                        "url": {"type": "keyword"},
+                        "alt": {"type": "text"},
+                        "is_primary": {"type": "boolean"},
+                        "order": {"type": "integer"},
+                    },
+                },
+                # Pre-computed fields for performance
+                "min_price": {"type": "float"},
+                "max_price": {"type": "float"},
+                "total_stock": {"type": "integer"},
+                "available_colors": {"type": "keyword"},
+                "available_sizes": {"type": "keyword"},
+                "primary_image_url": {"type": "keyword"},
+                "image_count": {"type": "integer"},
+                "variant_count": {"type": "integer"},
+                # Search optimization fields
+                "search_keywords": {  # Combined searchable text
+                    "type": "text",
+                    "analyzer": "standard",
+                },
+                # Status and metadata
+                "is_active": {"type": "boolean"},
+                "is_new": {"type": "boolean"},
                 "created_at": {"type": "date"},
                 "updated_at": {"type": "date"},
-                "is_active": {"type": "boolean"},
-                "metadata": {  # Nested object
-                    "type": "object",
-                    "enabled": True,
-                },
+                # Analytics/scoring fields
+                "view_count": {"type": "integer"},
+                "sales_count": {"type": "integer"},
+                "rating_average": {"type": "float"},
+                "rating_count": {"type": "integer"},
             }
         }
 
