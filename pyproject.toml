@@ -18,4 +18,6 @@ dependencies = [
     "sqlalchemy>=2.0.43",
     "sqlmodel>=0.0.25",
     "uvicorn>=0.37.0",
+    "elasticsearch>=8.19.1",
+    "elasticsearch-dsl>=8.18.0",
 ]
