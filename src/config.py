@@ -57,6 +57,12 @@ class Config(CustomBaseSettings):
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
 
+    # Elasticsearch
+    ELASTICSEARCH_URL: str
+    ELASTICSEARCH_INDEX_PREFIX: str
+    ELASTICSEARCH_TIMEOUT: int
+    ELASTICSEARCH_MAX_RETRIES: int
+
     APP_VERSION: str = "0.1"
 
     @model_validator(mode="after")
