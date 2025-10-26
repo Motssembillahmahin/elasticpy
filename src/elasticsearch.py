@@ -1,4 +1,4 @@
-from config import settings
+from src.config import settings
 import logging
 from elasticsearch import AsyncElasticsearch
 
@@ -16,6 +16,9 @@ class ElasticsearchClient:
         if cls._client is None:
             cls._client = AsyncElasticsearch(
                 hosts=[settings.ELASTICSEARCH_URL],
+                basic_auth=("elastic", settings.ELASTICSEARCH_PASSWORD),
+                verify_certs=False,  # Disable cert verification for development
+                ssl_show_warn=False,  # Suppress SSL warnings
                 request_timeout=settings.ELASTICSEARCH_TIMEOUT,
                 max_retries=settings.ELASTICSEARCH_MAX_RETRIES,
                 retry_on_timeout=True,

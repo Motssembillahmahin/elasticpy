@@ -59,6 +59,7 @@ class Config(CustomBaseSettings):
 
     # Elasticsearch
     ELASTICSEARCH_URL: str
+    ELASTICSEARCH_PASSWORD: str
     ELASTICSEARCH_INDEX_PREFIX: str
     ELASTICSEARCH_TIMEOUT: int
     ELASTICSEARCH_MAX_RETRIES: int
