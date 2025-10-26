@@ -20,4 +20,5 @@ dependencies = [
     "uvicorn>=0.37.0",
     "elasticsearch>=8.19.1",
     "elasticsearch-dsl>=8.18.0",
+    "aiohttp>=3.13.1",
 ]
