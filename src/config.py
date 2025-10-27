@@ -64,6 +64,13 @@ class Config(CustomBaseSettings):
     ELASTICSEARCH_TIMEOUT: int
     ELASTICSEARCH_MAX_RETRIES: int
 
+    # S3 Configuration
+    AWS_ACCESS_KEY_ID: str
+    AWS_SECRET_ACCESS_KEY: str
+    AWS_REGION: str
+    MEDIA_PUBLIC_BUCKET: str
+    MEDIA_PRIVATE_BUCKET: str
+
     APP_VERSION: str = "0.1"
 
     @model_validator(mode="after")
