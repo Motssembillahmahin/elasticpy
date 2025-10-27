@@ -1,6 +1,8 @@
+from typing import Optional
 from src.config import settings
 import logging
 from elasticsearch import AsyncElasticsearch
+
 
 logger = logging.getLogger(__name__)
 
@@ -8,7 +10,7 @@ logger = logging.getLogger(__name__)
 class ElasticsearchClient:
     """Singleton Elasticsearch client manager"""
 
-    _client: AsyncElasticsearch = None
+    _client: Optional[AsyncElasticsearch] = None
 
     @classmethod
     async def get_client(cls) -> AsyncElasticsearch:
