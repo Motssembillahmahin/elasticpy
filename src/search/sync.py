@@ -28,25 +28,21 @@ class ProductSyncService:
             select(Product)
             .where(Product.id == product_id)
             .options(
-                # Load category
                 selectinload(Product.category),
-                # Load tags
                 selectinload(Product.tags),
-                # Load variants with nested attribute data
                 selectinload(Product.variants)
                 .selectinload(ProductVariant.attribute_variants)
                 .selectinload(AttributeVariant.attribute),
-                # Load variant images
                 selectinload(Product.variants).selectinload(ProductVariant.image),
-                # Load product images
                 selectinload(Product.images),
             )
         )
 
-        return self.db.exec(statement).first()
+        result = self.db.execute(statement)
+        return result.scalars().first()
 
     @staticmethod
-    def _build_variant_attributes(self, variant: ProductVariant) -> Dict[str, str]:
+    def _build_variant_attributes(variant: ProductVariant) -> Dict[str, str]:
         """
         Build attributes dictionary from variant's attribute variants
 
@@ -250,8 +246,7 @@ class ProductSyncService:
             )
             for img in sorted_images:
                 image_data = {
-                    "id": str(img.id),
-                    "name": img.name,
+                    "url": getattr(img, "url", ""),
                     "alt": getattr(img, "alt_text", "")
                     or getattr(img, "alt", "")
                     or "",
@@ -382,7 +377,6 @@ class ProductSyncService:
     async def index_product(self, product_id: int):
         """Index single product with all relations"""
         product = self._fetch_product_with_relations(product_id)
-
         if not product:
             logger.warning(f"Product {product_id} not found")
             return

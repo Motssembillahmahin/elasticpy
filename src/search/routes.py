@@ -4,7 +4,8 @@ from elasticsearch import AsyncElasticsearch
 from typing import Optional
 
 from src.database import get_db
-from src.elasticsearch import get_es_client
+from src.es_client import get_es_client
+from src.database import SessionLocal
 from src.search.sync import ProductSyncService
 from src.search.indices import IndexManager, ProductIndex
 
@@ -32,7 +33,6 @@ async def sync_products_endpoint(
     background_tasks: BackgroundTasks,
     limit: Optional[int] = None,
     batch_size: int = 500,
-    db: Session = Depends(get_db),  # ✅ This works with your dependency
     es: AsyncElasticsearch = Depends(get_es_client),
 ):
     """
@@ -48,8 +48,8 @@ async def sync_products_endpoint(
         db_session = SessionLocal()
 
         try:
-            sync_service = ProductSyncService(db_session=db_session, es_client=es)
-            await sync_service.bulk_index_products(batch_size=batch_size, limit=limit)
+            sync_service = ProductSyncService(db=db_session, es_client=es)
+            await sync_service.bulk_index_products(batch_size=batch_size)
         except Exception as e:
             print(f"Sync failed: {e}")
             raise
@@ -69,22 +69,33 @@ async def sync_products_endpoint(
 @router.post("/sync/products/{product_id}")
 async def sync_single_product(
     product_id: int,
-    db: Session = Depends(get_db),
     es: AsyncElasticsearch = Depends(get_es_client),
 ):
     """
     Sync single product to Elasticsearch immediately
     """
-    sync_service = ProductSyncService(db=db, es_client=es)
+    # Verify ES connection first
+    try:
+        await es.ping()
+    except Exception as e:
+        raise HTTPException(
+            status_code=503, detail=f"Elasticsearch is not available: {str(e)}"
+        )
+
+    db = SessionLocal()
 
     try:
+        sync_service = ProductSyncService(db=db, es_client=es)
         await sync_service.index_product(product_id)
+
         return {
             "status": "success",
             "message": f"Product {product_id} synced successfully",
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 
 @router.delete("/products/{product_id}")
@@ -96,7 +107,7 @@ async def delete_product_from_index(
     """
     Delete product from Elasticsearch index
     """
-    sync_service = ProductSyncService(db_session=db, es_client=es)
+    sync_service = ProductSyncService(db=db, es_client=es)
 
     try:
         await sync_service.delete_product(product_id)
