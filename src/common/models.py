@@ -8,8 +8,10 @@ import sqlalchemy as sa
 
 
 from src.product.associations import ProductImageLink
+from .enums import UploadedTo
 
-from .utils import generate_public_id
+from utils import generate_public_id, generate_presigned_url
+from ..config import settings
 
 if TYPE_CHECKING:
     from src.product.models import (
@@ -73,6 +75,14 @@ class Media(CommonFieldMixin, table=True):
         back_populates="images", link_model=ProductImageLink
     )
     product_variants: list["ProductVariant"] = Relationship(back_populates="image")
+
+    @property
+    def url(self) -> str:
+        if UploadedTo.is_private(self.uploaded_to):
+            return generate_presigned_url(
+                settings.MEDIA_PRIVATE_BUCKET, self.s3_key, expiration=3600
+            )
+        return self.s3_key
 
 
 class User(CommonFieldMixin, table=True):
