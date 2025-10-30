@@ -98,6 +98,33 @@ async def sync_single_product(
         db.close()
 
 
+@router.get("/products/{product_id}")
+async def get_product_from_index(
+    product_id: int,
+    es: AsyncElasticsearch = Depends(get_es_client),
+):
+    """
+    Get product from Elasticsearch index
+    """
+    index_name = ProductIndex.get_index_name()
+
+    try:
+        result = await es.get(index=index_name, id=str(product_id))
+
+        return {
+            "id": result["_id"],
+            "found": result["found"],
+            "source": result["_source"],
+        }
+    except Exception as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Product {product_id} not found in Elasticsearch",
+            )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/products/{product_id}")
 async def delete_product_from_index(
     product_id: int,
