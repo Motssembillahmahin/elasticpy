@@ -1,3 +1,7 @@
+import asyncio
+import json
+
+from sqlalchemy import func
 from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload
 from elasticsearch import AsyncElasticsearch
@@ -6,6 +10,7 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 
 from src.product.models import Product, ProductVariant, AttributeVariant
+
 
 import logging
 
@@ -30,6 +35,7 @@ class ProductSyncService:
             .options(
                 selectinload(Product.category),
                 selectinload(Product.tags),
+                selectinload(Product.brand),
                 selectinload(Product.variants)
                 .selectinload(ProductVariant.attribute_variants)
                 .selectinload(AttributeVariant.attribute),
@@ -64,6 +70,28 @@ class ProductSyncService:
                 attributes[attribute_name] = attribute_value
 
         return attributes
+
+    @staticmethod
+    def _extract_brand_name(product) -> str | None:
+        """
+        Extract brand name from product
+        Handles both brand objects and string brands
+        """
+        if not hasattr(product, "brand") or product.brand is None:
+            return None
+
+        brand = product.brand
+
+        if hasattr(brand, "name"):
+            return brand.name
+
+        if isinstance(brand, str):
+            return brand
+
+        try:
+            return str(brand)
+        except:  # noqa: E722
+            return None
 
     @staticmethod
     def _is_discount_active(
@@ -261,13 +289,15 @@ class ProductSyncService:
             if not primary_image_url and images:
                 primary_image_url = images[0]["url"]
 
+        brand_name = self._extract_brand_name(product)
+
         # Build search keywords
         search_keywords_parts = [
             product.name,
             product.description,
             category_name,
             " ".join(tag_names),
-            getattr(product, "brand", None),
+            brand_name,
             getattr(product, "sku", None),
         ]
 
@@ -292,7 +322,7 @@ class ProductSyncService:
             "name": product.name,
             "description": product.description,
             "sku": getattr(product, "sku", None),
-            "brand": getattr(product, "brand", None),
+            "brand": brand_name,
             # Base price (minimum price from variants)
             "price": min(variants_data["prices"]) if variants_data["prices"] else None,
             # Category
@@ -391,85 +421,148 @@ class ProductSyncService:
             logger.error(f"Failed to index product {product_id}: {e}")
             raise
 
-    async def bulk_index_products(self, batch_size: int):
+    async def bulk_index_products(
+        self,
+        batch_size: int = 100,
+        limit: int | None = None,
+        delay_between_batches: float = 0.5,
+    ):
         """
-        Bulk index all products with optimized queries
+        Optimized bulk index with better memory management
         """
         index_name = ProductIndex.get_index_name()
 
-        # Get total count efficiently
-        total_statement = select(Product)
-        total = len(self.db.exec(total_statement).all())
-        logger.info(f"Starting bulk index of {total} products")
+        count_query = select(func.count(Product.id))
+        if limit:
+            total = min(limit, self.db.execute(count_query).scalar())
+            logger.info(f"Starting bulk index of {total} products (limited)")
+        else:
+            total = self.db.execute(count_query).scalar()
+            logger.info(f"Starting bulk index of {total} products")
 
         offset = 0
+        processed = 0
+        errors = []
 
         while offset < total:
-            statement = (
-                select(Product)
-                .options(
-                    # Load category
-                    selectinload(Product.category),
-                    # Load tags
-                    selectinload(Product.tags),
-                    # Load variants with nested attribute data
-                    selectinload(Product.variants)
-                    .selectinload(ProductVariant.attribute_variants)
-                    .selectinload(AttributeVariant.attribute),
-                    # Load variant images
-                    selectinload(Product.variants).selectinload(ProductVariant.image),
-                    # Load product images
-                    selectinload(Product.images),
+            current_batch_size = min(batch_size, total - offset)
+
+            try:
+                statement = (
+                    select(Product)
+                    .options(
+                        selectinload(Product.category),
+                        selectinload(Product.brand),
+                        selectinload(Product.tags),
+                        selectinload(Product.variants)
+                        .selectinload(ProductVariant.attribute_variants)
+                        .selectinload(AttributeVariant.attribute),
+                        selectinload(Product.variants).selectinload(
+                            ProductVariant.image
+                        ),
+                        selectinload(Product.images),
+                    )
+                    .offset(offset)
+                    .limit(current_batch_size)
                 )
-                .offset(offset)
-                .limit(batch_size)
-            )
 
-            products = self.db.exec(statement).all()
+                result = self.db.execute(statement)
+                products = result.scalars().all()
 
-            if not products:
+                if not products:
+                    logger.warning(f"No products found at offset {offset}")
+                    break
+
+                operations = []
+                for product in products:
+                    try:
+                        doc = self._product_to_document(product)
+                        json.dumps(doc)
+                        operations.append(
+                            {"index": {"_index": index_name, "_id": str(product.id)}}
+                        )
+                        operations.append(doc)
+                    except (TypeError, ValueError) as e:
+                        logger.error(
+                            f"Product {product.id} has non-serializable data: {e}"
+                        )
+                        # Print the problematic document to see which field is the issue
+                        logger.error(f"Document: {doc}")
+                        errors.append({"product_id": product.id, "error": str(e)})
+                        continue
+
+                if operations:
+                    try:
+                        response = await self.es.bulk(
+                            body=operations, request_timeout=60
+                        )
+
+                        if response.get("errors"):
+                            logger.error(
+                                f"Bulk index had errors in batch {offset}-{offset + current_batch_size}"
+                            )
+
+                            for item in response["items"]:
+                                if "error" in item.get("index", {}):
+                                    error = item["index"]["error"]
+                                    logger.error(f"Error: {error}")
+                                    errors.append(
+                                        {
+                                            "product_id": item["index"]["_id"],
+                                            "error": error,
+                                        }
+                                    )
+                        else:
+                            processed += len(products)
+                            logger.info(
+                                f"✓ Indexed batch {offset}-{offset + current_batch_size}/{total} ({processed} total)"
+                            )
+
+                    except Exception as e:
+                        logger.error(
+                            f"Bulk index failed for batch {offset}-{offset + current_batch_size}: {e}"
+                        )
+                        errors.append(
+                            {
+                                "batch": f"{offset}-{offset + current_batch_size}",
+                                "error": str(e),
+                            }
+                        )
+
+                if delay_between_batches > 0:
+                    await asyncio.sleep(delay_between_batches)
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to fetch batch {offset}-{offset + current_batch_size}: {e}"
+                )
+                errors.append(
+                    {
+                        "batch": f"{offset}-{offset + current_batch_size}",
+                        "error": str(e),
+                    }
+                )
+
+            offset += current_batch_size
+
+            if limit and processed >= limit:
                 break
 
-            # Prepare bulk operations
-            operations = []
-            for product in products:
-                try:
-                    doc = self._product_to_document(product)
-                    operations.append(
-                        {"index": {"_index": index_name, "_id": str(product.id)}}
-                    )
-                    operations.append(doc)
-                except Exception as e:
-                    logger.error(
-                        f"Failed to process product {product.id}: {e}", exc_info=True
-                    )
-                    continue
+            if offset % (batch_size * 5) == 0:
+                self.db.commit()
 
-            # Execute bulk
-            if operations:
-                try:
-                    response = await self.es.bulk(operations=operations)
+        logger.info(f"Bulk indexing completed. Processed {processed}/{total} products")
 
-                    if response.get("errors"):
-                        logger.error(
-                            f"Bulk index had errors in batch {offset}-{offset + batch_size}"
-                        )
-                        for item in response["items"]:
-                            if "error" in item.get("index", {}):
-                                logger.error(f"Error: {item['index']['error']}")
-                    else:
-                        logger.info(
-                            f"Indexed batch {offset}-{offset + batch_size}/{total}"
-                        )
+        if errors:
+            logger.warning(f"Encountered {len(errors)} errors during sync")
+            return {
+                "status": "completed_with_errors",
+                "processed": processed,
+                "total": total,
+                "errors": errors[:10],
+            }
 
-                except Exception as e:
-                    logger.error(
-                        f"Bulk index failed for batch {offset}-{offset + batch_size}: {e}"
-                    )
-
-            offset += batch_size
-
-        logger.info("Bulk indexing completed")
+        return {"status": "success", "processed": processed, "total": total}
 
     async def delete_product(self, product_id: int):
         """Delete product from index"""
