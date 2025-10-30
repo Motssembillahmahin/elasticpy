@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from src.product.associations import ProductImageLink
 from .enums import UploadedTo
 
-from utils import generate_public_id, generate_presigned_url
-from ..config import settings
+from src.common.utils import generate_public_id, generate_presigned_url
+from src.config import settings
 
 if TYPE_CHECKING:
     from src.product.models import (
