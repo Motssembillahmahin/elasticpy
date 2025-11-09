@@ -21,7 +21,7 @@ async def initialize_indices(es: AsyncElasticsearch = Depends(get_es_client)):
     """
     try:
         manager = IndexManager(es)
-        await manager.create_index(ProductIndex)
+        await manager.initialize_all_indices()
 
         return {"status": "success", "message": "Indices initialized successfully"}
     except Exception as e:
