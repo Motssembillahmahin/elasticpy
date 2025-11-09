@@ -6,25 +6,56 @@ from typing import Optional
 from src.database import get_db
 from src.es_client import get_es_client
 from src.database import SessionLocal
+from src.search.const import DEFAULT_SHARDS, DEFAULT_REPLICAS
 from src.search.sync import ProductSyncService
 from src.search.indices import IndexManager, ProductIndex
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/admin/elasticsearch", tags=["admin", "elasticsearch"])
 
 
 @router.post("/init")
-async def initialize_indices(es: AsyncElasticsearch = Depends(get_es_client)):
+async def initialize_indices(
+    shards: Optional[int] = None,
+    replicas: Optional[int] = None,
+    es: AsyncElasticsearch = Depends(get_es_client),
+):
     """
-    Initialize Elasticsearch indices
+    Initialize Elasticsearch indices with optional shard/replica configuration.
 
-    Creates all index mappings and settings
+    Query Parameters:
+        - shards: Number of primary shards (optional, defaults to DEFAULT_SHARDS)
+        - replicas: Number of replicas (optional, defaults to DEFAULT_REPLICAS)
+
+    Examples:
+        - POST /init (uses defaults)
+        - POST /init?shards=3&replicas=2
+        - POST /init?shards=5
+        - POST /init?replicas=1
     """
     try:
         manager = IndexManager(es)
-        await manager.initialize_all_indices()
+        await manager.initialize_all_indices(
+            num_of_shards=shards, num_of_replicas=replicas
+        )
 
-        return {"status": "success", "message": "Indices initialized successfully"}
+        response = {
+            "status": "success",
+            "message": "Indices initialized successfully",
+            "settings": {
+                "shards": shards or DEFAULT_SHARDS,
+                "replicas": replicas or DEFAULT_REPLICAS,
+            },
+        }
+
+        return response
+
     except Exception as e:
+        logger.error(f"Failed to initialize indices: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
