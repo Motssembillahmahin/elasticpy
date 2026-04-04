@@ -128,6 +128,12 @@ class ProductIndex(BaseIndex):
                     "type": "text",
                     "analyzer": "standard",
                 },
+                "text_embedding": {
+                    "type": "dense_vector",
+                    "dims": 384,
+                    "index": True,
+                    "similarity": "cosine",
+                },
                 "is_active": {"type": "boolean"},
                 "is_new": {"type": "boolean"},
                 "created_at": {"type": "date"},
