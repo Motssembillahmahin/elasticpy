@@ -9,6 +9,8 @@ from src.database import SessionLocal
 from src.search.const import DEFAULT_SHARDS, DEFAULT_REPLICAS
 from src.search.sync import ProductSyncService
 from src.search.indices import IndexManager, ProductIndex
+from src.search.services import ProductSearchService
+from src.search.schemas import SemanticSearchRequest, HybridSearchRequest
 
 import logging
 
@@ -16,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/admin/elasticsearch", tags=["admin", "elasticsearch"])
+semantic_router = APIRouter(prefix="/products", tags=["search"])
 
 
 @router.post("/init")
@@ -214,4 +217,55 @@ async def get_reindex_status(es: AsyncElasticsearch = Depends(get_es_client)):
         tasks = await es.tasks.list(detailed=True, actions="*reindex")
         return {"running_tasks": len(tasks.get("nodes", {})), "tasks": tasks}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Semantic & Hybrid search endpoints  (mounted at /search/products/...)
+# ---------------------------------------------------------------------------
+
+
+@semantic_router.post("/semantic")
+async def semantic_search(
+    request: SemanticSearchRequest,
+    es: AsyncElasticsearch = Depends(get_es_client),
+):
+    """
+    Pure semantic (vector) search using sentence-transformer embeddings.
+
+    Finds products by *meaning*, not just keyword overlap — useful for
+    natural-language queries like "comfortable running shoes for winter".
+
+    - **query**: Natural-language description of what you're looking for
+    - **semantic_weight** is fixed at 1.0 here (use /hybrid to blend)
+    """
+    try:
+        service = ProductSearchService(es)
+        return await service.semantic_search(request)
+    except Exception as e:
+        logger.error(f"Semantic search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@semantic_router.post("/hybrid")
+async def hybrid_search(
+    request: HybridSearchRequest,
+    es: AsyncElasticsearch = Depends(get_es_client),
+):
+    """
+    Hybrid search: blends BM25 keyword relevance with semantic vector similarity.
+
+    Use **semantic_weight** to control the blend:
+    - `0.0` → pure keyword search (identical to standard search)
+    - `0.5` → equal blend (recommended default)
+    - `1.0` → pure semantic search
+
+    Best for queries that mix exact terms with natural-language intent,
+    e.g. "Nike shoes for trail running".
+    """
+    try:
+        service = ProductSearchService(es)
+        return await service.hybrid_search(request)
+    except Exception as e:
+        logger.error(f"Hybrid search failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

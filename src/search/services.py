@@ -5,6 +5,8 @@ from src.search.schemas import (
     SearchResponse,
     SearchHit,
     ProductSearchRequest,
+    SemanticSearchRequest,
+    HybridSearchRequest,
 )
 from src.search.indices import ProductIndex
 import logging
@@ -234,6 +236,105 @@ class ProductSearchService(SearchService):
         )
 
         return self._parse_response(response, request)
+
+    async def semantic_search(self, request: SemanticSearchRequest) -> SearchResponse:
+        """Pure vector (kNN) search over the text_embedding field."""
+        from src.search.embeddings import EmbeddingService
+
+        query_vector = EmbeddingService.embed(request.query)
+        index_name = ProductIndex.get_index_name()
+        from_offset = (request.page - 1) * request.size
+
+        knn_filters = [{"term": {"is_active": True}}]
+        if request.min_price is not None or request.max_price is not None:
+            price_range = {}
+            if request.min_price is not None:
+                price_range["gte"] = request.min_price
+            if request.max_price is not None:
+                price_range["lte"] = request.max_price
+            knn_filters.append({"range": {"min_price": price_range}})
+        if request.categories:
+            knn_filters.append({"terms": {"category_name": request.categories}})
+
+        try:
+            response = await self.es.search(
+                index=index_name,
+                knn={
+                    "field": "text_embedding",
+                    "query_vector": query_vector,
+                    "k": request.size,
+                    "num_candidates": request.size * 10,
+                    "filter": knn_filters,
+                },
+                from_=from_offset,
+                size=request.size,
+                track_total_hits=True,
+            )
+            return self._parse_response(response, request)
+        except Exception as e:
+            logger.error(f"Semantic search error: {e}")
+            raise
+
+    async def hybrid_search(self, request: HybridSearchRequest) -> SearchResponse:
+        """Hybrid search: combines BM25 keyword score with kNN semantic score.
+
+        semantic_weight controls the blend:
+          0.0 → pure keyword, 1.0 → pure semantic, 0.5 → equal blend.
+        """
+        from src.search.embeddings import EmbeddingService
+
+        query_vector = EmbeddingService.embed(request.query)
+        index_name = ProductIndex.get_index_name()
+        from_offset = (request.page - 1) * request.size
+
+        shared_filters = [{"term": {"is_active": True}}]
+        if request.min_price is not None or request.max_price is not None:
+            price_range = {}
+            if request.min_price is not None:
+                price_range["gte"] = request.min_price
+            if request.max_price is not None:
+                price_range["lte"] = request.max_price
+            shared_filters.append({"range": {"min_price": price_range}})
+        if request.categories:
+            shared_filters.append({"terms": {"category_name": request.categories}})
+
+        keyword_boost = round(1.0 - request.semantic_weight, 4)
+        semantic_boost = round(request.semantic_weight, 4)
+
+        try:
+            response = await self.es.search(
+                index=index_name,
+                query={
+                    "bool": {
+                        "must": [
+                            {
+                                "multi_match": {
+                                    "query": request.query,
+                                    "fields": ["name^3", "description^2", "search_keywords"],
+                                    "fuzziness": "AUTO",
+                                    "boost": keyword_boost,
+                                }
+                            }
+                        ],
+                        "filter": shared_filters,
+                    }
+                },
+                knn={
+                    "field": "text_embedding",
+                    "query_vector": query_vector,
+                    "k": request.size,
+                    "num_candidates": request.size * 10,
+                    "filter": shared_filters,
+                    "boost": semantic_boost,
+                },
+                from_=from_offset,
+                size=request.size,
+                track_total_hits=True,
+            )
+            return self._parse_response(response, request)
+        except Exception as e:
+            logger.error(f"Hybrid search error: {e}")
+            raise
 
     async def get_facets(self) -> Dict[str, Any]:
         """Get aggregations for filters (categories, price ranges, etc.)"""

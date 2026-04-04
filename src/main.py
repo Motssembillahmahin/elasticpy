@@ -10,6 +10,7 @@ from src.database import init_redis_pool, close_redis_pool
 
 from src.product.routes import router as product_router
 from src.search.routes import router as search_router
+from src.search.routes import semantic_router
 
 
 if TYPE_CHECKING:
@@ -43,6 +44,12 @@ app.include_router(
 
 app.include_router(
     search_router,
+    prefix="/search",
+    tags=["Search"],
+)
+
+app.include_router(
+    semantic_router,
     prefix="/search",
     tags=["Search"],
 )
