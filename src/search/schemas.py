@@ -21,6 +21,28 @@ class ProductSearchRequest(SearchRequest):
     tags: Optional[List[str]] = None
 
 
+class SemanticSearchRequest(BaseModel):
+    """Pure semantic (vector) search request"""
+
+    query: str = Field(..., min_length=1, description="Natural-language search query")
+    page: int = Field(1, ge=1)
+    size: int = Field(10, ge=1, le=100)
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    categories: Optional[List[str]] = None
+
+
+class HybridSearchRequest(SemanticSearchRequest):
+    """Hybrid keyword + semantic search request"""
+
+    semantic_weight: float = Field(
+        0.5,
+        ge=0.0,
+        le=1.0,
+        description="Blend ratio: 0.0 = keyword only, 1.0 = semantic only",
+    )
+
+
 class SearchHit(BaseModel):
     """Single search result"""
 
