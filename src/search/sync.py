@@ -15,6 +15,7 @@ from src.product.models import Product, ProductVariant, AttributeVariant
 import logging
 
 from src.search.indices import ProductIndex
+from src.search.embeddings import EmbeddingService
 
 logger = logging.getLogger(__name__)
 
@@ -377,6 +378,21 @@ class ProductSyncService:
             "rating_average": getattr(product, "rating_average", 0.0),
             "rating_count": getattr(product, "rating_count", 0),
         }
+
+        # Semantic embedding — concatenate the most meaningful text fields
+        embed_text = " ".join(
+            filter(
+                None,
+                [
+                    product.name,
+                    product.description,
+                    category_name,
+                    " ".join(tag_names),
+                    brand_name,
+                ],
+            )
+        )
+        document["text_embedding"] = EmbeddingService.embed(embed_text)
 
         return document
 
