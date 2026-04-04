@@ -22,4 +22,5 @@ dependencies = [
     "elasticsearch-dsl>=8.18.0",
     "aiohttp>=3.13.1",
     "boto3>=1.40.60",
+    "sentence-transformers>=3.0.0",
 ]
